@@ -24,7 +24,7 @@ env:
 jobs:
   build-ios-full-gpl:
     name: Build iOS Full GPL
-    runs-on: macos-latest
+    runs-on: macos-14
 
     defaults:
       run:
@@ -36,13 +36,13 @@ jobs:
 
       - name: Install prerequisites
         run: |
-          brew update
-          brew install autoconf automake libtool pkg-config curl git cmake nasm make meson ninja
+          brew install autoconf automake libtool pkg-config curl git cmake nasm make meson ninja yasm
 
       - name: Set up Xcode
         run: |
-          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer || sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
           xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-path
 
       - name: Build FFmpegKit full-gpl
         run: |
@@ -75,13 +75,13 @@ jobs:
 
           if [ -z "$LIBAVCODEC" ]; then
             echo "libavcodec binary not found"
-            find prebuilt -maxdepth 5 -type f | sort
+            find prebuilt -maxdepth 8 -type f | sort
             exit 1
           fi
 
           echo "Checking: $LIBAVCODEC"
 
-          strings "$LIBAVCODEC" | grep -Ei 'libx264|libx265|h264_videotoolbox|hevc_videotoolbox|aac_at|libopenh264|libaom-av1|libvpx-vp9|x264|x265|openh264|aom|vpx|videotoolbox|audiotoolbox' || true
+          strings "$LIBAVCODEC" | grep -Ei 'x264|x265|openh264|aom|vpx|videotoolbox|audiotoolbox|aac_at' || true
 
           REQUIRED=(
             "libx264"
@@ -128,6 +128,15 @@ jobs:
         if: always()
         run: |
           [ -f build.log ] && cat build.log || true
+
+      - name: Print x265 logs
+        if: failure()
+        run: |
+          echo "Searching x265 logs..."
+          find . -iname '*x265*log*' -o -path '*x265*/CMakeFiles/CMakeOutput.log' -o -path '*x265*/CMakeFiles/CMakeError.log' | while read -r f; do
+            echo "===== $f ====="
+            tail -200 "$f" || true
+          done
 
       - name: Print FFmpeg config log
         if: failure()
