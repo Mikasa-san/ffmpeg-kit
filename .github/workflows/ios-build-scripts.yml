@@ -36,6 +36,7 @@ jobs:
 
       - name: Install prerequisites
         run: |
+          brew update
           brew install autoconf automake libtool pkg-config curl git cmake nasm make meson ninja
 
       - name: Set up Xcode
@@ -46,10 +47,59 @@ jobs:
       - name: Build FFmpegKit full-gpl
         run: |
           rm -rf prebuilt .tmp build.log
-
           chmod +x ./ios.sh
 
-          bash -x ./ios.sh -x --enable-gpl --target=16.0 --disable-armv7 --disable-armv7s --disable-arm64e --disable-i386 --disable-x86-64 --disable-x86-64-mac-catalyst --disable-arm64-mac-catalyst  --disable-arm64-simulator 
+          bash -x ./ios.sh \
+            -x \
+            --enable-gpl \
+            --target=16.0 \
+            --disable-armv7 \
+            --disable-armv7s \
+            --disable-arm64e \
+            --disable-i386 \
+            --disable-x86-64 \
+            --disable-x86-64-mac-catalyst \
+            --disable-arm64-mac-catalyst \
+            --disable-arm64-simulator \
+            --enable-ios-videotoolbox \
+            --enable-ios-audiotoolbox \
+            --enable-x264 \
+            --enable-x265 \
+            --enable-openh264 \
+            --enable-libaom \
+            --enable-libvpx
+
+      - name: Verify enabled codecs
+        run: |
+          LIBAVCODEC="$(find prebuilt -path '*libavcodec.xcframework*' -type f -name 'libavcodec' | head -n 1)"
+
+          if [ -z "$LIBAVCODEC" ]; then
+            echo "libavcodec binary not found"
+            find prebuilt -maxdepth 5 -type f | sort
+            exit 1
+          fi
+
+          echo "Checking: $LIBAVCODEC"
+
+          strings "$LIBAVCODEC" | grep -Ei 'libx264|libx265|h264_videotoolbox|hevc_videotoolbox|aac_at|libopenh264|libaom-av1|libvpx-vp9|x264|x265|openh264|aom|vpx|videotoolbox|audiotoolbox' || true
+
+          REQUIRED=(
+            "libx264"
+            "libx265"
+            "h264_videotoolbox"
+            "hevc_videotoolbox"
+            "aac_at"
+            "libopenh264"
+            "libaom-av1"
+            "libvpx-vp9"
+          )
+
+          for codec in "${REQUIRED[@]}"; do
+            if ! strings "$LIBAVCODEC" | grep -q "$codec"; then
+              echo "Missing codec/encoder: $codec"
+              exit 1
+            fi
+          done
 
       - name: Prepare artifact
         run: |
@@ -82,4 +132,4 @@ jobs:
       - name: Print FFmpeg config log
         if: failure()
         run: |
-          [ -f ./src/ffmpeg/ffbuild/config.log ] && tail -100 ./src/ffmpeg/ffbuild/config.log || true
+          find . -path '*/ffbuild/config.log' -exec sh -c 'echo "===== $1 ====="; tail -200 "$1"' _ {} \; || true
