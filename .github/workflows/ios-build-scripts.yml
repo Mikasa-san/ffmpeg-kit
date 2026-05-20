@@ -1,6 +1,7 @@
-name: ios build scripts
+name: Build FFmpegKit iOS Full GPL
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - development
@@ -8,91 +9,77 @@ on:
     paths:
       - '.github/workflows/ios-build-scripts.yml'
       - 'apple/**'
-      - '!apple/README.md'
-      - 'scripts/**'
-      - 'tools/**'
-      - 'apple.sh'
-      - 'ios.sh'
-  pull_request:
-    branches:
-      - development
-      - main
-    paths:
-      - '.github/workflows/ios-build-scripts.yml'
-      - 'apple/**'
-      - '!apple/README.md'
       - 'scripts/**'
       - 'tools/**'
       - 'apple.sh'
       - 'ios.sh'
 
+permissions:
+  contents: write
+
+env:
+  VERSION: "6.0"
+  VARIANT: "full-gpl"
+
 jobs:
-  build-main-on-macos-sonoma:
-    name: ios main on sonoma
-    runs-on: macos-14
-    strategy:
-      matrix:
-        xcode: [ '15.4', '16.0' ]
+  build-ios-full-gpl:
+    name: Build iOS Full GPL
+    runs-on: macos-latest
+
     defaults:
       run:
         shell: bash
+
     steps:
-      - uses: actions/checkout@v4
-      - name: prerequisites
-        run: brew install autoconf automake libtool pkg-config curl git cmake nasm
-      - name: set up xcode
-        run: echo "export DEVELOPER_DIR=/Applications/Xcode_${{ matrix.xcode }}.app/Contents/Developer" > ~/.xcode.for.ffmpeg.kit.sh
-      - name: run the build script
-        run: ./ios.sh --xcframework --enable-ios-audiotoolbox --enable-ios-avfoundation --enable-ios-bzip2 --enable-ios-libiconv --enable-ios-videotoolbox --enable-ios-zlib
-      - name: print build logs
-        if: ${{ always() }}
-        run: cat build.log
-      - name: print ffbuild logs
-        if: ${{ failure() }}
-        run: '[[ -f ./src/ffmpeg/ffbuild/config.log ]] && tail -50 ./src/ffmpeg/ffbuild/config.log'
-  build-main-on-macos-ventura:
-    name: ios main on ventura
-    runs-on: macos-13
-    strategy:
-      matrix:
-        xcode: [ '14.3.1', '15.2' ]
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v4
-      - name: prerequisites
-        run: brew install autoconf automake libtool pkg-config curl git cmake nasm
-      - name: set up xcode
-        run: echo "export DEVELOPER_DIR=/Applications/Xcode_${{ matrix.xcode }}.app/Contents/Developer" > ~/.xcode.for.ffmpeg.kit.sh
-      - name: run the build script
-        run: ./ios.sh --xcframework --enable-ios-audiotoolbox --enable-ios-avfoundation --enable-ios-bzip2 --enable-ios-libiconv --enable-ios-videotoolbox --enable-ios-zlib
-      - name: print build logs
-        if: ${{ always() }}
-        run: cat build.log
-      - name: print ffbuild logs
-        if: ${{ failure() }}
-        run: '[[ -f ./src/ffmpeg/ffbuild/config.log ]] && tail -50 ./src/ffmpeg/ffbuild/config.log'
-  build-lts-on-macos-monterey:
-    name: ios lts on monterey
-    runs-on: macos-12
-    strategy:
-      matrix:
-        xcode: [ '13.4.1', '14.2' ]
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@v4
-      - name: prerequisites
-        run: brew install autoconf automake libtool pkg-config curl git cmake nasm
-      - name: set up xcode
-        run: echo "export DEVELOPER_DIR=/Applications/Xcode_${{ matrix.xcode }}.app/Contents/Developer" > ~/.xcode.for.ffmpeg.kit.sh
-      - name: run the build script
-        run: ./ios.sh --lts --enable-ios-audiotoolbox --enable-ios-bzip2 --enable-ios-libiconv --enable-ios-zlib
-      - name: print build logs
-        if: ${{ always() }}
-        run: cat build.log
-      - name: print ffbuild logs
-        if: ${{ failure() }}
-        run: '[[ -f ./src/ffmpeg/ffbuild/config.log ]] && tail -50 ./src/ffmpeg/ffbuild/config.log'
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install prerequisites
+        run: |
+          brew install autoconf automake libtool pkg-config curl git cmake nasm make meson ninja
+
+      - name: Set up Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          xcodebuild -version
+
+      - name: Build FFmpegKit full-gpl
+        run: |
+          rm -rf prebuilt .tmp build.log
+
+          chmod +x ./ios.sh
+
+          bash -x ./ios.sh -x --enable-gpl --target=16.0 --disable-armv7 --disable-armv7s --disable-arm64e --disable-i386 --disable-x86-64 --disable-x86-64-mac-catalyst --disable-arm64-mac-catalyst  --disable-arm64-simulator 
+
+      - name: Prepare artifact
+        run: |
+          mkdir -p output
+          cd prebuilt/bundle-apple-xcframework-ios
+          zip -qry "$GITHUB_WORKSPACE/output/ffmpeg-kit-${VARIANT}-${VERSION}-ios-xcframework.zip" ./*.xcframework
+          ls -lh "$GITHUB_WORKSPACE/output"
+
+      - name: Upload FFmpegKit artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: ffmpeg-kit-${{ env.VARIANT }}-${{ env.VERSION }}-ios-xcframework
+          path: output/ffmpeg-kit-${{ env.VARIANT }}-${{ env.VERSION }}-ios-xcframework.zip
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2.5.0
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: FFmpegKit ${{ env.VERSION }} ${{ env.VARIANT }} iOS XCFramework
+          files: output/ffmpeg-kit-${{ env.VARIANT }}-${{ env.VERSION }}-ios-xcframework.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Print build log
+        if: always()
+        run: |
+          [ -f build.log ] && cat build.log || true
+
+      - name: Print FFmpeg config log
+        if: failure()
+        run: |
+          [ -f ./src/ffmpeg/ffbuild/config.log ] && tail -100 ./src/ffmpeg/ffbuild/config.log || true
